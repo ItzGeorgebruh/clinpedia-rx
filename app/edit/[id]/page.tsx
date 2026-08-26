@@ -1,21 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { PlusCircle, ArrowLeft, CheckCircle2, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Save } from 'lucide-react';
 import Link from 'next/link';
-import { GoogleGenAI } from '@google/genai';
+import { useParams, useRouter } from 'next/navigation';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Initialize Gemini SDK
-const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || '' });
+export default function EditDrug() {
+  const params = useParams();
+  const router = useRouter();
+  const drugId = params.id;
 
-export default function AdminAddDrug() {
   const [formData, setFormData] = useState({
-    system: 'Cardiovascular',
+    system: '',
     class_name: '',
     generic_name: '',
     brand_name: '',
@@ -28,76 +29,49 @@ export default function AdminAddDrug() {
     clinical_pearls: ''
   });
 
-  const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Fetch the existing drug data on page load
+  useEffect(() => {
+    async function fetchDrug() {
+      const { data, error } = await supabase
+        .from('drugs')
+        .select('*')
+        .eq('id', drugId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching drug:', error);
+      } else if (data) {
+        setFormData({
+          system: data.system || '',
+          class_name: data.class_name || '',
+          generic_name: data.generic_name || '',
+          brand_name: data.brand_name || '',
+          moa: data.moa || '',
+          indications: Array.isArray(data.indications) ? data.indications.join(', ') : data.indications || '',
+          routes: Array.isArray(data.routes) ? data.routes.join(', ') : data.routes || '',
+          adverse_effects: Array.isArray(data.adverse_effects) ? data.adverse_effects.join(', ') : data.adverse_effects || '',
+          contraindications: Array.isArray(data.contraindications) ? data.contraindications.join(', ') : data.contraindications || '',
+          patient_counseling: Array.isArray(data.patient_counseling) ? data.patient_counseling.join(', ') : data.patient_counseling || '',
+          clinical_pearls: data.clinical_pearls || ''
+        });
+      }
+      setLoading(false);
+    }
+
+    if (drugId) fetchDrug();
+  }, [drugId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // AI Auto-Fill Handler
-  const handleAIGenerate = async () => {
-    if (!formData.generic_name) {
-      alert('Please enter at least a generic drug name first (e.g., Lisinopril)!');
-      return;
-    }
-
-    setAiLoading(true);
-    try {
-      const prompt = `Provide high-yield clinical pharmacology data for the medication "${formData.generic_name}". 
-      Return ONLY a valid JSON object with the following exact keys, where array values should be comma-separated strings:
-      {
-        "system": "Choose one from: Cardiovascular, Respiratory, Endocrine, Central Nervous System, Renal, Gastrointestinal, Psychiatry",
-        "class_name": "Drug class name",
-        "brand_name": "Common brand names separated by commas",
-        "moa": "Detailed mechanism of action description",
-        "indications": "Indication 1, Indication 2, Indication 3",
-        "routes": "Oral, IV, etc.",
-        "adverse_effects": "Effect 1, Effect 2",
-        "contraindications": "Contraindication 1, Contraindication 2",
-        "patient_counseling": "Counseling tip 1, Counseling tip 2",
-        "clinical_pearls": "High-yield board exam clinical pearl"
-      }`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-      });
-
-      const textResponse = response.text;
-      if (!textResponse) throw new Error('No response from AI');
-
-      // Clean up markdown code block formatting if present
-      const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsedData = JSON.parse(cleanJson);
-
-      setFormData(prev => ({
-        ...prev,
-        system: parsedData.system || prev.system,
-        class_name: parsedData.class_name || prev.class_name,
-        brand_name: parsedData.brand_name || prev.brand_name,
-        moa: parsedData.moa || prev.moa,
-        indications: parsedData.indications || prev.indications,
-        routes: parsedData.routes || prev.routes,
-        adverse_effects: parsedData.adverse_effects || prev.adverse_effects,
-        contraindications: parsedData.contraindications || prev.contraindications,
-        patient_counseling: parsedData.patient_counseling || prev.patient_counseling,
-        clinical_pearls: parsedData.clinical_pearls || prev.clinical_pearls,
-      }));
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('AI generation error:', err);
-      alert('Failed to generate data with AI. Check console or try again.');
-    }
-    setAiLoading(false);
-  };
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
-    setSuccessMessage('');
 
     const payload = {
       ...formData,
@@ -108,57 +82,37 @@ export default function AdminAddDrug() {
       patient_counseling: formData.patient_counseling.split(',').map((item: string) => item.trim()),
     };
 
-    const { error } = await supabase.from('drugs').insert([payload]);
+    const { error } = await supabase
+      .from('drugs')
+      .update(payload)
+      .eq('id', drugId);
 
     if (error) {
-      // eslint-disable-next-line no-console
-      console.error('Error inserting drug:', error);
-      alert('Error adding drug. Check console for details.');
+      console.error('Error updating drug:', error);
+      alert('Error updating drug. Check console.');
     } else {
-      setSuccessMessage('Medication successfully added to the database!');
-      setFormData({
-        system: 'Cardiovascular',
-        class_name: '',
-        generic_name: '',
-        brand_name: '',
-        moa: '',
-        indications: '',
-        routes: '',
-        adverse_effects: '',
-        contraindications: '',
-        patient_counseling: '',
-        clinical_pearls: ''
-      });
+      setSuccessMessage('Medication updated successfully!');
+      setTimeout(() => {
+        router.push('/');
+      }, 1200);
     }
     setLoading(false);
   };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center text-slate-500">Loading drug details...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans">
       <div className="max-w-3xl mx-auto">
         <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-blue-600 mb-6">
-          <ArrowLeft className="w-4 h-4" /> Back to Drug Reference Dashboard
+          <ArrowLeft className="w-4 h-4" /> Back to Dashboard
         </Link>
 
         <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <PlusCircle className="w-8 h-8 text-blue-600" />
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900">Add New Medication</h1>
-                <p className="text-sm text-slate-500">Type a generic name and let AI fill out the rest automatically.</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleAIGenerate}
-              disabled={aiLoading}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium rounded-xl text-sm hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm disabled:opacity-50"
-            >
-              <Sparkles className="w-4 h-4" /> {aiLoading ? 'Generating AI Data...' : '✨ Auto-Fill with AI'}
-            </button>
-          </div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Edit Medication</h1>
+          <p className="text-sm text-slate-500 mb-6">Update the fields below to modify this entry in your database.</p>
 
           {successMessage && (
             <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-800">
@@ -170,7 +124,7 @@ export default function AdminAddDrug() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Body System / Specialty</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Body System</label>
                 <select 
                   name="system" 
                   value={formData.system} 
@@ -186,6 +140,7 @@ export default function AdminAddDrug() {
                   <option value="Psychiatry">Psychiatry</option>
                 </select>
               </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Drug Class</label>
                 <input 
@@ -194,21 +149,20 @@ export default function AdminAddDrug() {
                   required
                   value={formData.class_name} 
                   onChange={handleChange}
-                  placeholder="e.g., ACE Inhibitors"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />             </div>
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Generic Name (Type this first for AI)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Generic Name</label>
                 <input 
                   type="text" 
                   name="generic_name" 
                   required
                   value={formData.generic_name} 
                   onChange={handleChange}
-                  placeholder="e.g., Lisinopril"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
               </div>
@@ -221,7 +175,6 @@ export default function AdminAddDrug() {
                   required
                   value={formData.brand_name} 
                   onChange={handleChange}
-                  placeholder="e.g., Prinivil, Zestril"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
               </div>
@@ -235,7 +188,6 @@ export default function AdminAddDrug() {
                 required
                 value={formData.moa} 
                 onChange={handleChange}
-                placeholder="Detailed pharmacological mechanism..."
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
               />
             </div>
@@ -249,7 +201,6 @@ export default function AdminAddDrug() {
                   required
                   value={formData.indications} 
                   onChange={handleChange}
-                  placeholder="Hypertension, Heart Failure"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
               </div>
@@ -262,7 +213,6 @@ export default function AdminAddDrug() {
                   required
                   value={formData.routes} 
                   onChange={handleChange}
-                  placeholder="Oral, IV"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
               </div>
@@ -277,7 +227,6 @@ export default function AdminAddDrug() {
                   required
                   value={formData.adverse_effects} 
                   onChange={handleChange}
-                  placeholder="Dry cough, Hyperkalemia"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
               </div>
@@ -290,7 +239,6 @@ export default function AdminAddDrug() {
                   required
                   value={formData.contraindications} 
                   onChange={handleChange}
-                  placeholder="Pregnancy, Angioedema history"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
               </div>
@@ -304,19 +252,17 @@ export default function AdminAddDrug() {
                 required
                 value={formData.patient_counseling} 
                 onChange={handleChange}
-                placeholder="Rise slowly from sitting positions"
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Clinical Pearls (Optional)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Clinical Pearls</label>
               <input 
                 type="text" 
                 name="clinical_pearls" 
                 value={formData.clinical_pearls} 
                 onChange={handleChange}
-                placeholder="High-yield board note..."
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
               />
             </div>
@@ -324,9 +270,9 @@ export default function AdminAddDrug() {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl text-sm hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+              className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-2"
             >
-              {loading ? 'Saving to Database...' : 'Save Medication'}
+              <Save className="w-4 h-4" /> Save Changes
             </button>
           </form>
         </div>
