@@ -68,7 +68,7 @@ export default function DashboardPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b pb-6">
           <div>
             <h1 className="text-3xl font-extrabold flex items-center gap-2 text-slate-900">
-              <Pill className="w-8 h-8 text-blue-600" /> Clinpedia RX Reference
+              <Pill className="w-8 h-8 text-blue-600" /> Pharmacology Reference
             </h1>
             <p className="text-sm text-slate-500 mt-1">Didactic classes, clinical rotations, and alphabetical drug database.</p>
           </div>
