@@ -183,7 +183,7 @@ export default function AdminAddDrug() {
                   name="system" 
                   value={formData.system} 
                   onChange={handleChange}
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
                 >
                   <option value="Cardiovascular">Cardiovascular</option>
                   <option value="Respiratory">Respiratory</option>
