@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { PlusCircle, ArrowLeft, CheckCircle2, Sparkles, Moon, Sun } from 'lucide-react';
+import { PlusCircle, ArrowLeft, CheckCircle2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { GoogleGenAI } from '@google/genai';
 
@@ -10,60 +10,70 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
 
-export default function AdminAddDrug() {
-  const [darkMode, setDarkMode] = useState(false);
+export default function AddMedicationPage() {
   const [formData, setFormData] = useState({
-    system: 'Cardiovascular',
-    class_name: '',
     generic_name: '',
-    brand_name: '',
-    moa: '',
+    brand_names: '',
+    drug_class: '',
+    body_system: 'Cardiovascular',
+    folder: 'Pharmacology I',
+    mechanism_of_action: '',
     indications: '',
     routes: '',
+    pediatric_dosage: '',
     adverse_effects: '',
     contraindications: '',
     patient_counseling: '',
-    clinical_pearls: ''
+    clinical_pearls: '',
   });
 
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
+  const [success, setSuccess] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleAIGenerate = async () => {
-    if (!formData.generic_name) {
-      alert('Please enter at least a generic drug name first (e.g., Lisinopril)!');
+    if (!formData.generic_name.trim()) {
+      alert('Please type a generic or brand medication name first!');
       return;
     }
 
     setAiLoading(true);
     try {
-      const prompt = `Provide high-yield clinical pharmacology data for the medication "${formData.generic_name}". 
-      Return ONLY a valid JSON object with the following exact keys, where array values should be comma-separated strings:
+      const prompt = `Provide clinical pharmacology details for the medication "${formData.generic_name}" (this may be entered as either a generic or brand name). Format the response strictly as a JSON object with the following exact keys:
       {
-        "system": "Choose one from: Cardiovascular, Respiratory, Endocrine, Central Nervous System, Renal, Gastrointestinal, Psychiatry",
-        "class_name": "Drug class name",
-        "brand_name": "Common brand names separated by commas",
-        "moa": "Detailed mechanism of action description",
-        "indications": "Indication 1, Indication 2, Indication 3",
-        "routes": "Oral, IV, etc.",
-        "adverse_effects": "Effect 1, Effect 2",
-        "contraindications": "Contraindication 1, Contraindication 2",
-        "patient_counseling": "Counseling tip 1, Counseling tip 2",
-        "clinical_pearls": "High-yield board exam clinical pearl"
+        "generic_name": "string (the official generic name)",
+        "brand_names": "string (comma separated brand names)",
+        "drug_class": "string",
+        "body_system": "Cardiovascular" | "Pulmonary" | "Neurology" | "Endocrine" | "Infectious Disease" | "Gastrointestinal" | "Renal" | "Psychiatry" | "Hematology" | "Musculoskeletal",
+        "mechanism_of_action": "string",
+        "indications": "string (comma separated)",
+        "routes": "string (comma separated)",
+        "pediatric_dosage": "string",
+        "adverse_effects": "string (comma separated)",
+        "contraindications": "string (comma separated)",
+        "patient_counseling": "string (comma separated)",
+        "clinical_pearls": "string"
       }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: prompt,
-      });
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-3.6-flash',
+          contents: prompt,
+        });
+      } catch (err) {
+        response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+        });
+      }
 
       const textResponse = response.text;
       if (!textResponse) throw new Error('No response from AI');
@@ -73,270 +83,259 @@ export default function AdminAddDrug() {
 
       setFormData(prev => ({
         ...prev,
-        system: parsedData.system || prev.system,
-        class_name: parsedData.class_name || prev.class_name,
-        brand_name: parsedData.brand_name || prev.brand_name,
-        moa: parsedData.moa || prev.moa,
-        indications: parsedData.indications || prev.indications,
-        routes: parsedData.routes || prev.routes,
-        adverse_effects: parsedData.adverse_effects || prev.adverse_effects,
-        contraindications: parsedData.contraindications || prev.contraindications,
-        patient_counseling: parsedData.patient_counseling || prev.patient_counseling,
-        clinical_pearls: parsedData.clinical_pearls || prev.clinical_pearls,
+        ...parsedData,
       }));
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('AI generation error:', err);
-      alert('Failed to generate data with AI.');
+    } catch (error) {
+      console.error('AI generation error:', error);
+      alert('AI is experiencing high traffic or failed to parse. Please try clicking Auto-Fill again.');
+    } finally {
+      setAiLoading(false);
     }
-    setAiLoading(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setSuccessMessage('');
 
-    const payload = {
-      ...formData,
-      indications: formData.indications.split(',').map((item: string) => item.trim()),
-      routes: formData.routes.split(',').map((item: string) => item.trim()),
-      adverse_effects: formData.adverse_effects.split(',').map((item: string) => item.trim()),
-      contraindications: formData.contraindications.split(',').map((item: string) => item.trim()),
-      patient_counseling: formData.patient_counseling.split(',').map((item: string) => item.trim()),
-    };
+    const { error } = await supabase.from('medications').insert([formData]);
 
-    const { error } = await supabase.from('drugs').insert([payload]);
-
+    setLoading(false);
     if (error) {
-      // eslint-disable-next-line no-console
-      console.error('Error inserting drug:', error);
-      alert('Error adding drug.');
+      alert('Error saving medication: ' + error.message);
     } else {
-      setSuccessMessage('Medication successfully added to the database!');
+      setSuccess(true);
       setFormData({
-        system: 'Cardiovascular',
-        class_name: '',
         generic_name: '',
-        brand_name: '',
-        moa: '',
+        brand_names: '',
+        drug_class: '',
+        body_system: 'Cardiovascular',
+        folder: 'Pharmacology I',
+        mechanism_of_action: '',
         indications: '',
         routes: '',
+        pediatric_dosage: '',
         adverse_effects: '',
         contraindications: '',
         patient_counseling: '',
-        clinical_pearls: ''
+        clinical_pearls: '',
       });
+      setTimeout(() => setSuccess(false), 4000);
     }
-    setLoading(false);
   };
 
   return (
-    <div className={`min-h-screen p-6 font-sans transition-colors ${darkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10">
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <Link href="/" className={`inline-flex items-center gap-2 text-sm font-medium ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-blue-600'}`}>
-            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-          </Link>
-          <button 
-            type="button"
-            onClick={() => setDarkMode(!darkMode)}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors border ${darkMode ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}
-          >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />} 
-            {darkMode ? 'Light Mode' : 'Night Mode'}
-          </button>
-        </div>
+        <Link href="/" className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800 mb-6">
+          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Dashboard
+        </Link>
 
-        <div className={`border rounded-2xl p-8 shadow-sm transition-colors ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-700/20">
-            <div className="flex items-center gap-3">
-              <PlusCircle className="w-8 h-8 text-blue-600" />
-              <div>
-                <h1 className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-slate-900'}`}>Add New Medication</h1>
-                <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Type a generic name and let AI fill out the rest.</p>
-              </div>
+        <div className="bg-white shadow-sm rounded-xl p-6 md:p-8 border border-slate-200">
+          <div className="flex justify-between items-center mb-6 border-b pb-4">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <PlusCircle className="w-6 h-6 text-blue-600" /> Add New Medication
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">Type a generic or brand name and let AI fill out the rest automatically.</p>
             </div>
-
             <button
               type="button"
               onClick={handleAIGenerate}
               disabled={aiLoading}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium rounded-xl text-sm hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm disabled:opacity-50"
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition shadow-sm disabled:opacity-50 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" /> {aiLoading ? 'Generating...' : '✨ Auto-Fill with AI'}
+              <Sparkles className="w-4 h-4" />
+              {aiLoading ? 'Thinking...' : 'Auto-Fill with AI'}
             </button>
           </div>
 
-          {successMessage && (
-            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-800">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span className="text-sm font-medium">{successMessage}</span>
+          {success && (
+            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2 text-sm font-medium">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" /> Medication successfully saved to database!
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Generic or Brand Name (Type this first for AI)</label>
+              <input
+                type="text"
+                name="generic_name"
+                value={formData.generic_name}
+                onChange={handleInputChange}
+                required
+                placeholder="e.g., Lisinopril or Zestril"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Body System</label>
-                <select 
-                  name="system" 
-                  value={formData.system} 
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Body System / Specialty</label>
+                <select
+                  name="body_system"
+                  value={formData.body_system}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white"
                 >
                   <option value="Cardiovascular">Cardiovascular</option>
-                  <option value="Respiratory">Respiratory</option>
+                  <option value="Pulmonary">Pulmonary</option>
+                  <option value="Neurology">Neurology</option>
                   <option value="Endocrine">Endocrine</option>
-                  <option value="Central Nervous System">Central Nervous System</option>
-                  <option value="Renal">Renal</option>
+                  <option value="Infectious Disease">Infectious Disease</option>
                   <option value="Gastrointestinal">Gastrointestinal</option>
+                  <option value="Renal">Renal</option>
                   <option value="Psychiatry">Psychiatry</option>
+                  <option value="Hematology">Hematology</option>
+                  <option value="Musculoskeletal">Musculoskeletal</option>
                 </select>
               </div>
 
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Drug Class</label>
-                <input 
-                  type="text" 
-                  name="class_name" 
-                  required
-                  value={formData.class_name} 
-                  onChange={handleChange}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Didactic Class / Folder</label>
+                <input
+                  type="text"
+                  name="folder"
+                  value={formData.folder}
+                  onChange={handleInputChange}
+                  placeholder="e.g., Pharmacology I, Cardiology Unit"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Drug Class</label>
+                <input
+                  type="text"
+                  name="drug_class"
+                  value={formData.drug_class}
+                  onChange={handleInputChange}
                   placeholder="e.g., ACE Inhibitors"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Generic Name</label>
-                <input 
-                  type="text" 
-                  name="generic_name" 
-                  required
-                  value={formData.generic_name} 
-                  onChange={handleChange}
-                  placeholder="e.g., Lisinopril"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Brand Name(s)</label>
-                <input 
-                  type="text" 
-                  name="brand_name" 
-                  required
-                  value={formData.brand_name} 
-                  onChange={handleChange}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Brand Name(s)</label>
+                <input
+                  type="text"
+                  name="brand_names"
+                  value={formData.brand_names}
+                  onChange={handleInputChange}
                   placeholder="e.g., Prinivil, Zestril"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Mechanism of Action (MOA)</label>
-              <textarea 
-                name="moa" 
-                rows={2} 
-                required
-                value={formData.moa} 
-                onChange={handleChange}
-                placeholder="Detailed mechanism..."
-                className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Mechanism of Action (MOA)</label>
+              <textarea
+                name="mechanism_of_action"
+                value={formData.mechanism_of_action}
+                onChange={handleInputChange}
+                rows={2}
+                placeholder="Detailed pharmacological mechanism..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Indications (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="indications" 
-                  required
-                  value={formData.indications} 
-                  onChange={handleChange}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Indications (comma-separated)</label>
+                <input
+                  type="text"
+                  name="indications"
+                  value={formData.indications}
+                  onChange={handleInputChange}
                   placeholder="Hypertension, Heart Failure"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Routes (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="routes" 
-                  required
-                  value={formData.routes} 
-                  onChange={handleChange}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Routes (comma-separated)</label>
+                <input
+                  type="text"
+                  name="routes"
+                  value={formData.routes}
+                  onChange={handleInputChange}
                   placeholder="Oral, IV"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Pediatric Dosage</label>
+              <input
+                type="text"
+                name="pediatric_dosage"
+                value={formData.pediatric_dosage}
+                onChange={handleInputChange}
+                placeholder="e.g., 0.1 mg/kg/dose PO daily (if applicable)"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Adverse Effects (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="adverse_effects" 
-                  required
-                  value={formData.adverse_effects} 
-                  onChange={handleChange}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Adverse Effects (comma-separated)</label>
+                <input
+                  type="text"
+                  name="adverse_effects"
+                  value={formData.adverse_effects}
+                  onChange={handleInputChange}
                   placeholder="Dry cough, Hyperkalemia"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contraindications (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="contraindications" 
-                  required
-                  value={formData.contraindications} 
-                  onChange={handleChange}
-                  placeholder="Pregnancy, Angioedema"
-                  className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Contraindications (comma-separated)</label>
+                <input
+                  type="text"
+                  name="contraindications"
+                  value={formData.contraindications}
+                  onChange={handleInputChange}
+                  placeholder="Pregnancy, Angioedema history"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Patient Counseling Tips (comma-separated)</label>
-              <textarea 
-                name="patient_counseling" 
-                rows={2} 
-                required
-                value={formData.patient_counseling} 
-                onChange={handleChange}
-                placeholder="Rise slowly from sitting..."
-                className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Patient Counseling Tips (comma-separated)</label>
+              <textarea
+                name="patient_counseling"
+                value={formData.patient_counseling}
+                onChange={handleInputChange}
+                rows={2}
+                placeholder="Rise slowly from sitting positions"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Clinical Pearls</label>
-              <input 
-                type="text" 
-                name="clinical_pearls" 
-                value={formData.clinical_pearls} 
-                onChange={handleChange}
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Clinical Pearls (Optional)</label>
+              <textarea
+                name="clinical_pearls"
+                value={formData.clinical_pearls}
+                onChange={handleInputChange}
+                rows={2}
                 placeholder="High-yield board note..."
-                className={`w-full px-3 py-2 border rounded-lg text-sm font-medium text-slate-900 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'}`}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
-              className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl text-sm hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+              className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50 mt-4 cursor-pointer"
             >
-              {loading ? 'Saving to Database...' : 'Save Medication'}
+              {loading ? 'Saving Medication...' : 'Save Medication'}
             </button>
           </form>
         </div>

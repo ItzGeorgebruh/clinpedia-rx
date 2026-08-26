@@ -1,12 +1,1 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Force input and textarea text to be dark, readable black */
-input, textarea, select {
-  color: #0f172a !important;
-}
-
-input::placeholder, textarea::placeholder {
-  color: #94a3b8 !important;
-}
+@import "tailwindcss";

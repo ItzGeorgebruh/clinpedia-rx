@@ -1,335 +1,171 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { PlusCircle, ArrowLeft, CheckCircle2, Sparkles } from 'lucide-react';
+import { PlusCircle, Search, Pill, Eye, Edit3, Folder, Layers } from 'lucide-react';
 import Link from 'next/link';
-import { GoogleGenAI } from '@google/genai';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Initialize Gemini SDK
-const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || '' });
+interface Medication {
+  id: number | string;
+  generic_name: string;
+  brand_names: string;
+  drug_class: string;
+  body_system: string;
+  folder: string;
+}
 
-export default function AdminAddDrug() {
-  const [formData, setFormData] = useState({
-    system: 'Cardiovascular',
-    class_name: '',
-    generic_name: '',
-    brand_name: '',
-    moa: '',
-    indications: '',
-    routes: '',
-    adverse_effects: '',
-    contraindications: '',
-    patient_counseling: '',
-    clinical_pearls: ''
-  });
+export default function DashboardPage() {
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState('ALL');
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
+  useEffect(() => {
+    fetchMedications();
+  }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  // AI Auto-Fill Handler
-  const handleAIGenerate = async () => {
-    if (!formData.generic_name) {
-      alert('Please enter at least a generic drug name first (e.g., Lisinopril)!');
-      return;
-    }
-
-    setAiLoading(true);
-    try {
-      const prompt = `Provide high-yield clinical pharmacology data for the medication "${formData.generic_name}". 
-      Return ONLY a valid JSON object with the following exact keys, where array values should be comma-separated strings:
-      {
-        "system": "Choose one from: Cardiovascular, Respiratory, Endocrine, Central Nervous System, Renal, Gastrointestinal, Psychiatry",
-        "class_name": "Drug class name",
-        "brand_name": "Common brand names separated by commas",
-        "moa": "Detailed mechanism of action description",
-        "indications": "Indication 1, Indication 2, Indication 3",
-        "routes": "Oral, IV, etc.",
-        "adverse_effects": "Effect 1, Effect 2",
-        "contraindications": "Contraindication 1, Contraindication 2",
-        "patient_counseling": "Counseling tip 1, Counseling tip 2",
-        "clinical_pearls": "High-yield board exam clinical pearl"
-      }`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-      });
-
-      const textResponse = response.text;
-      if (!textResponse) throw new Error('No response from AI');
-
-      // Clean up markdown code block formatting if present
-      const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsedData = JSON.parse(cleanJson);
-
-      setFormData(prev => ({
-        ...prev,
-        system: parsedData.system || prev.system,
-        class_name: parsedData.class_name || prev.class_name,
-        brand_name: parsedData.brand_name || prev.brand_name,
-        moa: parsedData.moa || prev.moa,
-        indications: parsedData.indications || prev.indications,
-        routes: parsedData.routes || prev.routes,
-        adverse_effects: parsedData.adverse_effects || prev.adverse_effects,
-        contraindications: parsedData.contraindications || prev.contraindications,
-        patient_counseling: parsedData.patient_counseling || prev.patient_counseling,
-        clinical_pearls: parsedData.clinical_pearls || prev.clinical_pearls,
-      }));
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('AI generation error:', err);
-      alert('Failed to generate data with AI. Check console or try again.');
-    }
-    setAiLoading(false);
-  };
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const fetchMedications = async () => {
     setLoading(true);
-    setSuccessMessage('');
-
-    const payload = {
-      ...formData,
-      indications: formData.indications.split(',').map((item: string) => item.trim()),
-      routes: formData.routes.split(',').map((item: string) => item.trim()),
-      adverse_effects: formData.adverse_effects.split(',').map((item: string) => item.trim()),
-      contraindications: formData.contraindications.split(',').map((item: string) => item.trim()),
-      patient_counseling: formData.patient_counseling.split(',').map((item: string) => item.trim()),
-    };
-
-    const { error } = await supabase.from('drugs').insert([payload]);
+    const { data, error } = await supabase
+      .from('medications')
+      .select('id, generic_name, brand_names, drug_class, body_system, folder')
+      .order('generic_name', { ascending: true });
 
     if (error) {
-      // eslint-disable-next-line no-console
-      console.error('Error inserting drug:', error);
-      alert('Error adding drug. Check console for details.');
+      console.error('Error fetching medications:', error);
     } else {
-      setSuccessMessage('Medication successfully added to the database!');
-      setFormData({
-        system: 'Cardiovascular',
-        class_name: '',
-        generic_name: '',
-        brand_name: '',
-        moa: '',
-        indications: '',
-        routes: '',
-        adverse_effects: '',
-        contraindications: '',
-        patient_counseling: '',
-        clinical_pearls: ''
-      });
+      setMedications(data || []);
     }
     setLoading(false);
   };
 
+  // Extract unique folders dynamically from your saved medications
+  const folders = ['ALL', ...Array.from(new Set(medications.map(m => m.folder || 'Unassigned')))];
+
+  // Filter by search query AND selected folder
+  const filteredMeds = medications.filter(med => {
+    const matchesSearch = 
+      med.generic_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      med.brand_names?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      med.drug_class?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      med.body_system?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const medFolder = med.folder || 'Unassigned';
+    const matchesFolder = selectedFolder === 'ALL' || medFolder === selectedFolder;
+
+    return matchesSearch && matchesFolder;
+  });
+
   return (
-    <div className="min-h-screen bg-slate-50 p-6 font-sans">
-      <div className="max-w-3xl mx-auto">
-        <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-blue-600 mb-6">
-          <ArrowLeft className="w-4 h-4" /> Back to Drug Reference Dashboard
-        </Link>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <PlusCircle className="w-8 h-8 text-blue-600" />
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900">Add New Medication</h1>
-                <p className="text-sm text-slate-500">Type a generic name and let AI fill out the rest automatically.</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleAIGenerate}
-              disabled={aiLoading}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium rounded-xl text-sm hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm disabled:opacity-50"
-            >
-              <Sparkles className="w-4 h-4" /> {aiLoading ? 'Generating AI Data...' : '✨ Auto-Fill with AI'}
-            </button>
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10">
+      <div className="max-w-4xl mx-auto">
+        
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b pb-6">
+          <div>
+            <h1 className="text-3xl font-extrabold flex items-center gap-2 text-slate-900">
+              <Pill className="w-8 h-8 text-blue-600" /> Clinpedia RX Reference
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">Didactic classes, clinical rotations, and alphabetical drug database.</p>
           </div>
-
-          {successMessage && (
-            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-800">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span className="text-sm font-medium">{successMessage}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Body System / Specialty</label>
-                <select 
-                  name="system" 
-                  value={formData.system} 
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm"
-                >
-                  <option value="Cardiovascular">Cardiovascular</option>
-                  <option value="Respiratory">Respiratory</option>
-                  <option value="Endocrine">Endocrine</option>
-                  <option value="Central Nervous System">Central Nervous System</option>
-                  <option value="Renal">Renal</option>
-                  <option value="Gastrointestinal">Gastrointestinal</option>
-                  <option value="Psychiatry">Psychiatry</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Drug Class</label>
-                <input 
-                  type="text" 
-                  name="class_name" 
-                  required
-                  value={formData.class_name} 
-                  onChange={handleChange}
-                  placeholder="e.g., ACE Inhibitors"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />             </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Generic Name (Type this first for AI)</label>
-                <input 
-                  type="text" 
-                  name="generic_name" 
-                  required
-                  value={formData.generic_name} 
-                  onChange={handleChange}
-                  placeholder="e.g., Lisinopril"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Brand Name(s)</label>
-                <input 
-                  type="text" 
-                  name="brand_name" 
-                  required
-                  value={formData.brand_name} 
-                  onChange={handleChange}
-                  placeholder="e.g., Prinivil, Zestril"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Mechanism of Action (MOA)</label>
-              <textarea 
-                name="moa" 
-                rows={2} 
-                required
-                value={formData.moa} 
-                onChange={handleChange}
-                placeholder="Detailed pharmacological mechanism..."
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Indications (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="indications" 
-                  required
-                  value={formData.indications} 
-                  onChange={handleChange}
-                  placeholder="Hypertension, Heart Failure"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Routes (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="routes" 
-                  required
-                  value={formData.routes} 
-                  onChange={handleChange}
-                  placeholder="Oral, IV"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Adverse Effects (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="adverse_effects" 
-                  required
-                  value={formData.adverse_effects} 
-                  onChange={handleChange}
-                  placeholder="Dry cough, Hyperkalemia"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Contraindications (comma-separated)</label>
-                <input 
-                  type="text" 
-                  name="contraindications" 
-                  required
-                  value={formData.contraindications} 
-                  onChange={handleChange}
-                  placeholder="Pregnancy, Angioedema history"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Patient Counseling Tips (comma-separated)</label>
-              <textarea 
-                name="patient_counseling" 
-                rows={2} 
-                required
-                value={formData.patient_counseling} 
-                onChange={handleChange}
-                placeholder="Rise slowly from sitting positions"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Clinical Pearls (Optional)</label>
-              <input 
-                type="text" 
-                name="clinical_pearls" 
-                value={formData.clinical_pearls} 
-                onChange={handleChange}
-                placeholder="High-yield board note..."
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              />
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl text-sm hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
-            >
-              {loading ? 'Saving to Database...' : 'Save Medication'}
-            </button>
-          </form>
+          <Link
+            href="/admin"
+            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition shadow-sm"
+          >
+            <PlusCircle className="w-5 h-5" /> Add New Medication
+          </Link>
         </div>
+
+        {/* Folder / Class Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 no-scrollbar">
+          {folders.map((folderName) => (
+            <button
+              key={folderName}
+              onClick={() => setSelectedFolder(folderName)}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+                selectedFolder === folderName
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {folderName === 'ALL' ? <Layers className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
+              {folderName === 'ALL' ? 'Full Master List (Clinical)' : folderName}
+            </button>
+          ))}
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative mb-6">
+          <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search medications alphabetically..."
+            className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 text-sm"
+          />
+        </div>
+
+        {/* Medication List */}
+        {loading ? (
+          <div className="text-center py-20 text-slate-500">Loading directory...</div>
+        ) : filteredMeds.length === 0 ? (
+          <div className="text-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+            <p className="text-slate-600 font-medium">No medications found in this view.</p>
+            <p className="text-sm text-slate-400 mt-1">Try selecting a different folder or clearing your search.</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100 overflow-hidden">
+            {filteredMeds.map((med) => (
+              <div
+                key={med.id}
+                className="flex items-center justify-between p-4 md:p-5 hover:bg-slate-50 transition"
+              >
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-bold text-slate-900">
+                      {med.generic_name}
+                    </h2>
+                    {med.folder && selectedFolder === 'ALL' && (
+                      <span className="text-xs font-medium px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md">
+                        {med.folder}
+                      </span>
+                    )}
+                    {med.body_system && (
+                      <span className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-full">
+                        {med.body_system}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    <span className="font-medium text-slate-700">Brands:</span> {med.brand_names || 'None listed'}
+                  </p>
+                </div>
+
+                {/* View and Edit Links */}
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/view/${med.id}`}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </Link>
+                  <Link
+                    href={`/edit/${med.id}`}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg transition"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> Edit
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     </div>
   );
