@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clinpedia RX",
+  title: "Clinical RX",
   description: "Clinical Pharmacology Reference Dashboard",
 };
 
