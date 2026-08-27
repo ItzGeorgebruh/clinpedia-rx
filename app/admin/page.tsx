@@ -46,39 +46,36 @@ export default function AddMedicationPage() {
 
     setAiLoading(true);
     try {
-      const prompt = `Provide clinical pharmacology details for the medication "${formData.generic_name}" (this may be entered as either a generic or brand name). Format the response strictly as a JSON object with the following exact keys:
+      const prompt = `Return ONLY a raw JSON object with clinical pharmacology details for the medication "${formData.generic_name}". Do NOT include any markdown code blocks, backticks, conversational filler, or extra text. Use these exact keys:
       {
-        "generic_name": "string (the official generic name)",
-        "brand_names": "string (comma separated brand names)",
+        "generic_name": "string",
+        "brand_names": "string",
         "drug_class": "string",
         "body_system": "Cardiovascular" | "Pulmonary" | "Neurology" | "Endocrine" | "Infectious Disease" | "Gastrointestinal" | "Renal" | "Psychiatry" | "Hematology" | "Musculoskeletal",
         "mechanism_of_action": "string",
-        "indications": "string (comma separated)",
-        "routes": "string (comma separated)",
+        "indications": "string",
+        "routes": "string",
         "pediatric_dosage": "string",
-        "adverse_effects": "string (comma separated)",
-        "contraindications": "string (comma separated)",
-        "patient_counseling": "string (comma separated)",
+        "adverse_effects": "string",
+        "contraindications": "string",
+        "patient_counseling": "string",
         "clinical_pearls": "string"
       }`;
 
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
-          contents: prompt,
-        });
-      } catch (err) {
-        response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-        });
-      }
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+      });
 
       const textResponse = response.text;
       if (!textResponse) throw new Error('No response from AI');
 
-      const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      let cleanJson = textResponse.trim();
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
+
       const parsedData = JSON.parse(cleanJson);
 
       setFormData(prev => ({
@@ -87,7 +84,7 @@ export default function AddMedicationPage() {
       }));
     } catch (error) {
       console.error('AI generation error:', error);
-      alert('AI is experiencing high traffic or failed to parse. Please try clicking Auto-Fill again.');
+      alert('Failed to parse AI response. Please try clicking Auto-Fill again.');
     } finally {
       setAiLoading(false);
     }
@@ -136,7 +133,7 @@ export default function AddMedicationPage() {
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <PlusCircle className="w-6 h-6 text-blue-600" /> Add New Medication
               </h1>
-              <p className="text-sm text-slate-500 mt-1">Type a generic or brand name and let AI fill out the rest automatically.</p>
+              <p className="text-sm text-slate-500 mt-1">Type a generic or brand name and press Enter or click Auto-Fill.</p>
             </div>
             <button
               type="button"
@@ -157,12 +154,20 @@ export default function AddMedicationPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Generic or Brand Name (Type this first for AI)</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                Generic or Brand Name (Press Enter to Auto-Fill)
+              </label>
               <input
                 type="text"
                 name="generic_name"
                 value={formData.generic_name}
                 onChange={handleInputChange}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAIGenerate();
+                  }
+                }}
                 required
                 placeholder="e.g., Lisinopril or Zestril"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
