@@ -46,7 +46,7 @@ export default function AddMedicationPage() {
 
     setAiLoading(true);
     try {
-      const prompt = `Return ONLY a raw JSON object with clinical pharmacology details for the medication "${formData.generic_name}". Do NOT include any markdown code blocks, backticks, conversational filler, or extra text. Use these exact keys:
+      const prompt = `Provide clinical pharmacology details for the medication "${formData.generic_name}". Use these exact keys:
       {
         "generic_name": "string",
         "brand_names": "string",
@@ -65,6 +65,9 @@ export default function AddMedicationPage() {
       const response = await ai.models.generateContent({
         model: 'gemini-3.6-flash',
         contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        },
       });
 
       const textResponse = response.text;
