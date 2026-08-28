@@ -1,167 +1,279 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Edit3, Stethoscope, AlertTriangle, ShieldAlert, Baby } from 'lucide-react';
+import React, { useEffect, useState, use } from 'react';
+import { supabase } from '@/app/supabase';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowLeft, Edit, Trash2, ExternalLink } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-interface Medication {
-  generic_name: string;
-  brand_names: string;
-  drug_class: string;
-  body_system: string;
-  mechanism_of_action: string;
-  indications: string;
-  routes: string;
-  pediatric_dosage: string;
-  adverse_effects: string;
-  contraindications: string;
-  patient_counseling: string;
-  clinical_pearls: string;
-}
-
-export default function ViewMedicationPage() {
-  const params = useParams();
+export default function ViewMedicationPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
+  const id = resolvedParams?.id;
   const router = useRouter();
-  const id = params?.id;
 
-  const [med, setMed] = useState<Medication | null>(null);
+  const [record, setRecord] = useState<any>(null);
+  const [allDrugs, setAllDrugs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (id) {
-      fetchMedication();
+      fetchRecord();
+      fetchAllDrugs();
     }
   }, [id]);
 
-  const fetchMedication = async () => {
-    setLoading(true);
+  const fetchRecord = async () => {
     const { data, error } = await supabase
       .from('medications')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (error) {
-      console.error('Error fetching medication:', error);
-    } else {
-      setMed(data);
-    }
+    if (!error) setRecord(data);
+  };
+
+  const fetchAllDrugs = async () => {
+    setLoading(true);
+    // Fetch all pharmacology records to match against treatment names/classes
+    const { data } = await supabase
+      .from('medications')
+      .select('id, generic_name, drug_class, folder')
+      .eq('folder', 'Pharmacology');
+
+    if (data) setAllDrugs(data);
     setLoading(false);
   };
 
+  const handleDelete = async () => {
+    if (window.confirm('Are you sure you want to delete this entry?')) {
+      const { error } = await supabase.from('medications').delete().eq('id', id);
+      if (!error) {
+        router.push(record?.folder === 'Clinical Medicine' ? '/clinical' : '/pharmacology');
+        router.refresh();
+      }
+    }
+  };
+
+  // Upgraded formatter to break text into clean bullet points automatically
+  const formatTextAsBullets = (text: string) => {
+    if (!text) return <span className="text-slate-400">None specified</span>;
+    
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return (
+          <ul className="list-disc pl-5 space-y-1.5 text-slate-700">
+            {parsed.map((item, idx) => (
+              <li key={idx}>{item}</li>
+            ))}
+          </ul>
+        );
+      }
+    } catch (e) {
+      // Not JSON, handle regular string
+    }
+
+    // Split text by semicolons, commas, or periods followed by spaces to generate clean bullets
+    const items = text
+      .split(/;\s*|,\s*(?![^()]*\))|\.\s+/)
+      .map(item => item.trim().replace(/\.$/, ''))
+      .filter(item => item.length > 0);
+
+    if (items.length <= 1) {
+      return <p className="text-sm text-slate-700 whitespace-pre-line">{text}</p>;
+    }
+
+    return (
+      <ul className="list-disc pl-5 space-y-1.5 text-slate-700 text-sm">
+        {items.map((item, index) => (
+          <li key={index}>{item}</li>
+        ))}
+      </ul>
+    );
+  };
+
+  // Smart treatment cross-linker supporting direct names and class abbreviations (e.g., ACEi)
+  const renderClickableTreatment = (text: string) => {
+    if (!text) return <span className="text-slate-400">None specified</span>;
+    
+    let plainText = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        plainText = parsed.join('\n');
+      }
+    } catch (e) {
+      // regular string
+    }
+
+    const matchedDrugs = allDrugs.filter(drug => {
+      const nameMatch = drug.generic_name && plainText.toLowerCase().includes(drug.generic_name.toLowerCase());
+      
+      const classMatch = drug.drug_class && (
+        plainText.toLowerCase().includes(drug.drug_class.toLowerCase()) ||
+        (drug.drug_class.toLowerCase().includes('ace') && plainText.includes('ACEi')) ||
+        (drug.drug_class.toLowerCase().includes('arb') && plainText.includes('ARB'))
+      );
+
+      return nameMatch || classMatch;
+    });
+
+    if (matchedDrugs.length === 0) {
+      return formatTextAsBullets(text);
+    }
+
+    return (
+      <div className="space-y-3">
+        {formatTextAsBullets(text)}
+        <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Linked Pharmacology:</span>
+          {matchedDrugs.map(drug => (
+            <Link
+              key={drug.id}
+              href={`/view/${drug.id}`}
+              className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-1 rounded-lg text-xs font-semibold transition"
+            >
+              {drug.generic_name} <ExternalLink className="w-3 h-3" />
+            </Link>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Loading clinical data...</div>;
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400">Loading details...</div>;
   }
 
-  if (!med) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Medication not found.</div>;
+  if (!record) {
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400">Record not found.</div>;
   }
+
+  const isClinical = record.folder === 'Clinical Medicine';
+  const backLink = isClinical ? '/clinical' : '/pharmacology';
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <button
-            onClick={() => router.push('/')}
-            className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800 cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back to Dashboard
-          </button>
-          
-          <Link
-            href={`/edit/${id}`}
-            className="inline-flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-2 rounded-lg text-xs font-semibold hover:bg-blue-700 transition shadow-sm"
-          >
-            <Edit3 className="w-4 h-4" /> Edit Medication
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-4 sm:p-6 md:p-10">
+      <div className="max-w-3xl mx-auto space-y-6">
+        
+        <div className="flex items-center justify-between">
+          <Link href={backLink} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm transition">
+            <ArrowLeft className="w-4 h-4" /> Back to List
           </Link>
+
+          <div className="flex items-center gap-2">
+            <Link href={`/edit/${id}`} className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition shadow-sm">
+              <Edit className="w-4 h-4" /> Edit
+            </Link>
+            <button onClick={handleDelete} className="inline-flex items-center gap-2 bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-rose-100 transition shadow-sm cursor-pointer">
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          </div>
         </div>
 
-        <div className="bg-white shadow-sm rounded-2xl p-6 md:p-8 border border-slate-200 space-y-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 bg-blue-50 text-blue-700 rounded-full">
-                {med.body_system}
+        <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+          <div className="flex flex-wrap justify-between items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-semibold uppercase tracking-wider">
+                {record.folder} &bull; {record.body_systems || 'General'}
               </span>
-              <span className="text-xs font-semibold px-3 py-1 bg-slate-100 text-slate-700 rounded-lg">
-                {med.drug_class || 'General'}
-              </span>
+              {record.term && (
+                <span className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg font-semibold border border-indigo-100">
+                  {record.term}
+                </span>
+              )}
             </div>
-            <h1 className="text-3xl font-extrabold text-slate-900">{med.generic_name}</h1>
-            <p className="text-sm font-medium text-slate-500 mt-1">
-              <span className="text-slate-700">Brand Names:</span> {med.brand_names || 'None listed'}
+            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
+              {record.drug_class || 'Unclassified'}
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">{record.generic_name}</h1>
+          {record.brand_names && (
+            <p className="text-sm text-slate-500 font-medium">
+              {isClinical ? 'Subtype: ' : 'Brands: '}{record.brand_names}
             </p>
-          </div>
-
-          <div className="border-t border-slate-100 pt-5 space-y-4 text-sm">
-            <div>
-              <h3 className="font-semibold text-slate-700 flex items-center gap-1.5 mb-1">
-                <Stethoscope className="w-4 h-4 text-indigo-600" /> Mechanism of Action (MOA)
-              </h3>
-              <p className="text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100 leading-relaxed">
-                {med.mechanism_of_action || 'Not specified'}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h3 className="font-semibold text-slate-700 mb-1">Indications</h3>
-                <p className="text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                  {med.indications || 'Not specified'}
-                </p>
-              </div>
-              <div>
-                <h3 className="font-semibold text-slate-700 mb-1">Routes</h3>
-                <p className="text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                  {med.routes || 'Not specified'}
-                </p>
-              </div>
-            </div>
-
-            {/* Pediatric Dosage Highlight Box */}
-            <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl">
-              <h3 className="text-xs font-bold text-indigo-700 uppercase flex items-center gap-1.5 mb-1">
-                <Baby className="w-4 h-4 text-indigo-600" /> Pediatric Dosage
-              </h3>
-              <p className="text-sm text-slate-700 font-medium">{med.pediatric_dosage || 'Not specified / Adult only'}</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-rose-50/50 border border-rose-100 p-3.5 rounded-xl">
-                <h3 className="text-xs font-bold text-rose-700 uppercase flex items-center gap-1 mb-1">
-                  <AlertTriangle className="w-4 h-4" /> Adverse Effects
-                </h3>
-                <p className="text-xs text-slate-700">{med.adverse_effects || 'None listed'}</p>
-              </div>
-
-              <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-xl">
-                <h3 className="text-xs font-bold text-amber-700 uppercase flex items-center gap-1 mb-1">
-                  <ShieldAlert className="w-4 h-4" /> Contraindications
-                </h3>
-                <p className="text-xs text-slate-700">{med.contraindications || 'None listed'}</p>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-slate-700 mb-1">Patient Counseling Tips</h3>
-              <p className="text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                {med.patient_counseling || 'None specified'}
-              </p>
-            </div>
-
-            {med.clinical_pearls && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-blue-900">
-                <h3 className="font-bold text-xs uppercase tracking-wider text-blue-800 mb-1">Clinical Pearl</h3>
-                <p className="text-sm">{med.clinical_pearls}</p>
-              </div>
-            )}
-          </div>
+          )}
         </div>
+
+        {!isClinical ? (
+          <div className="space-y-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Pregnancy Safety Status</h3>
+                <p className="text-sm font-semibold text-slate-800 mt-0.5">{record.pregnancy_safety || 'Not specified'}</p>
+              </div>
+              <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
+                record.pregnancy_safety?.includes('Safe') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                record.pregnancy_safety?.includes('Contraindicated') || record.pregnancy_safety?.includes('Unsafe') ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                record.pregnancy_safety?.includes('Caution') ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                'bg-slate-100 text-slate-600 border-slate-200'
+              }`}>
+                {record.pregnancy_safety || 'N/A'}
+              </span>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Mechanism of Action</h3>
+              {formatTextAsBullets(record.mechanism_of_action)}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Indications</h3>
+                {formatTextAsBullets(record.indications)}
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Route</h3>
+                {formatTextAsBullets(record.route)}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-rose-500">Side Effects</h3>
+                {formatTextAsBullets(record.side_effects)}
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-amber-500">Contraindications</h3>
+                {formatTextAsBullets(record.contraindications)}
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-500">Clinical Pearls</h3>
+              {formatTextAsBullets(record.clinical_pearls)}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Pathology (Pathophysiology)</h3>
+              {formatTextAsBullets(record.pathophysiology)}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Cause</h3>
+                {formatTextAsBullets(record.cause)}
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Signs / Symptoms</h3>
+                {formatTextAsBullets(record.symptoms)}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Diagnosis / Tests Needed</h3>
+                {formatTextAsBullets(record.diagnostics_labs)}
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Treatment</h3>
+                {renderClickableTreatment(record.treatment)}
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-rose-500">Consequences (Complications)</h3>
+              {formatTextAsBullets(record.complications)}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

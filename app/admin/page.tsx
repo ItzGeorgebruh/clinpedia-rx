@@ -1,352 +1,337 @@
 'use client';
 
 import React, { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { PlusCircle, ArrowLeft, CheckCircle2, Sparkles } from 'lucide-react';
+import { supabase } from '@/app/supabase';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { GoogleGenAI } from '@google/genai';
+import { ArrowLeft, Save, Sparkles, AlertCircle } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export default function AdminPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const defaultFolder = searchParams.get('folder') || 'Pharmacology';
 
-const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-export default function AddMedicationPage() {
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
+    folder: defaultFolder,
+    term: 'Term 1',
+    pregnancy_safety: 'Not Specified',
     generic_name: '',
     brand_names: '',
     drug_class: '',
-    body_system: 'Cardiovascular',
-    folder: 'Pharmacology I',
+    body_systems: 'Cardiovascular',
     mechanism_of_action: '',
     indications: '',
-    routes: '',
-    pediatric_dosage: '',
-    adverse_effects: '',
+    route: '',
+    side_effects: '',
     contraindications: '',
-    patient_counseling: '',
     clinical_pearls: '',
+    pathophysiology: '',
+    cause: '',
+    symptoms: '',
+    diagnostics_labs: '',
+    treatment: '',
+    complications: '',
   });
 
-  const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleAIGenerate = async () => {
-    if (!formData.generic_name.trim()) {
-      alert('Please type a generic or brand medication name first!');
+  const handleAIFill = async () => {
+    if (!form.generic_name) {
+      alert('Please enter a name before running AI Auto-Fill.');
       return;
     }
 
-    setAiLoading(true);
-    try {
-      const prompt = `Provide clinical pharmacology details for the medication "${formData.generic_name}". Use these exact keys:
-      {
-        "generic_name": "string",
-        "brand_names": "string",
-        "drug_class": "string",
-        "body_system": "Cardiovascular" | "Pulmonary" | "Neurology" | "Endocrine" | "Infectious Disease" | "Gastrointestinal" | "Renal" | "Psychiatry" | "Hematology" | "Musculoskeletal",
-        "mechanism_of_action": "string",
-        "indications": "string",
-        "routes": "string",
-        "pediatric_dosage": "string",
-        "adverse_effects": "string",
-        "contraindications": "string",
-        "patient_counseling": "string",
-        "clinical_pearls": "string"
-      }`;
+    setGenerating(true);
+    setErrorMsg('');
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        },
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: form.generic_name, type: form.folder }),
       });
 
-      const textResponse = response.text;
-      if (!textResponse) throw new Error('No response from AI');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate AI data.');
 
-      let cleanJson = textResponse.trim();
-      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanJson = jsonMatch[0];
-      }
-
-      const parsedData = JSON.parse(cleanJson);
-
-      setFormData(prev => ({
+      setForm((prev) => ({
         ...prev,
-        ...parsedData,
+        brand_names: data.brand_names || prev.brand_names,
+        drug_class: data.drug_class || prev.drug_class,
+        body_systems: data.body_systems || prev.body_systems,
+        mechanism_of_action: data.mechanism_of_action || data.mechanism || prev.mechanism_of_action,
+        indications: data.indications || prev.indications,
+        route: data.route || prev.route,
+        side_effects: data.side_effects || prev.side_effects,
+        contraindications: data.contraindications || prev.contraindications,
+        clinical_pearls: data.clinical_pearls || prev.clinical_pearls,
+        pathophysiology: data.pathophysiology || prev.pathophysiology,
+        cause: data.cause || prev.cause,
+        symptoms: data.symptoms || prev.symptoms,
+        diagnostics_labs: data.diagnostics_labs || prev.diagnostics_labs,
+        treatment: data.treatment || prev.treatment,
+        complications: data.complications || prev.complications,
       }));
-    } catch (error) {
-      console.error('AI generation error:', error);
-      alert('Failed to parse AI response. Please try clicking Auto-Fill again.');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error generating content with AI.');
     } finally {
-      setAiLoading(false);
+      setGenerating(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSaving(true);
+    setErrorMsg('');
 
-    const { error } = await supabase.from('medications').insert([formData]);
+    const { data, error } = await supabase.from('medications').insert([form]).select();
 
-    setLoading(false);
     if (error) {
-      alert('Error saving medication: ' + error.message);
-    } else {
-      setSuccess(true);
-      setFormData({
-        generic_name: '',
-        brand_names: '',
-        drug_class: '',
-        body_system: 'Cardiovascular',
-        folder: 'Pharmacology I',
-        mechanism_of_action: '',
-        indications: '',
-        routes: '',
-        pediatric_dosage: '',
-        adverse_effects: '',
-        contraindications: '',
-        patient_counseling: '',
-        clinical_pearls: '',
-      });
-      setTimeout(() => setSuccess(false), 4000);
+      console.error('Error saving record:', error);
+      setErrorMsg(error.message);
+      setSaving(false);
+    } else if (data && data[0]) {
+      router.push(`/view/${data[0].id}`);
+      router.refresh();
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10">
-      <div className="max-w-3xl mx-auto">
-        <Link href="/" className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800 mb-6">
-          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Dashboard
-        </Link>
+  const isClinical = form.folder === 'Clinical Medicine';
+  const cancelLink = isClinical ? '/clinical' : '/pharmacology';
 
-        <div className="bg-white shadow-sm rounded-xl p-6 md:p-8 border border-slate-200">
-          <div className="flex justify-between items-center mb-6 border-b pb-4">
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-4 sm:p-6 md:p-10">
+      <div className="max-w-3xl mx-auto space-y-6">
+        
+        <div className="flex items-center justify-between">
+          <Link
+            href={cancelLink}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm transition"
+          >
+            <ArrowLeft className="w-4 h-4" /> Cancel
+          </Link>
+        </div>
+
+        {errorMsg && (
+          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl flex items-center gap-3 text-sm">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <PlusCircle className="w-6 h-6 text-blue-600" /> Add New Medication
-              </h1>
-              <p className="text-sm text-slate-500 mt-1">Type a generic or brand name and press Enter or click Auto-Fill.</p>
+              <h1 className="text-2xl font-bold text-slate-900">Add New Entry</h1>
+              <p className="text-sm text-slate-500 mt-0.5">Create a new study card for your database</p>
             </div>
+            
             <button
               type="button"
-              onClick={handleAIGenerate}
-              disabled={aiLoading}
-              className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition shadow-sm disabled:opacity-50 cursor-pointer"
+              onClick={handleAIFill}
+              disabled={generating}
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition shadow-sm disabled:opacity-50 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
-              {aiLoading ? 'Thinking...' : 'Auto-Fill with AI'}
+              {generating ? 'AI Generating...' : 'AI Auto-Fill'}
             </button>
           </div>
 
-          {success && (
-            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2 text-sm font-medium">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600" /> Medication successfully saved to database!
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                Generic or Brand Name (Press Enter to Auto-Fill)
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Section</label>
+              <select
+                name="folder"
+                value={form.folder}
+                onChange={handleChange}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="Pharmacology">Pharmacology</option>
+                <option value="Clinical Medicine">Clinical Medicine</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Didactic Term</label>
+              <select
+                name="term"
+                value={form.term}
+                onChange={handleChange}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="Term 1">Term 1</option>
+                <option value="Term 2">Term 2</option>
+                <option value="Term 3">Term 3</option>
+                <option value="Term 4">Term 4</option>
+                <option value="Clinical Year">Clinical Year</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                {isClinical ? 'Disease / Condition Name' : 'Generic Name'}
               </label>
               <input
                 type="text"
                 name="generic_name"
-                value={formData.generic_name}
-                onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAIGenerate();
-                  }
-                }}
+                value={form.generic_name}
+                onChange={handleChange}
                 required
-                placeholder="e.g., Lisinopril or Zestril"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                placeholder={isClinical ? 'e.g., Heart Failure' : 'e.g., Lisinopril'}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Body System / Specialty</label>
-                <select
-                  name="body_system"
-                  value={formData.body_system}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white"
-                >
-                  <option value="Cardiovascular">Cardiovascular</option>
-                  <option value="Pulmonary">Pulmonary</option>
-                  <option value="Neurology">Neurology</option>
-                  <option value="Endocrine">Endocrine</option>
-                  <option value="Infectious Disease">Infectious Disease</option>
-                  <option value="Gastrointestinal">Gastrointestinal</option>
-                  <option value="Renal">Renal</option>
-                  <option value="Psychiatry">Psychiatry</option>
-                  <option value="Hematology">Hematology</option>
-                  <option value="Musculoskeletal">Musculoskeletal</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Didactic Class / Folder</label>
-                <input
-                  type="text"
-                  name="folder"
-                  value={formData.folder}
-                  onChange={handleInputChange}
-                  placeholder="e.g., Pharmacology I, Cardiology Unit"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
+                {isClinical ? 'Subtype / Variant' : 'Brand Names'}
+              </label>
+              <input
+                type="text"
+                name="brand_names"
+                value={form.brand_names}
+                onChange={handleChange}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {!isClinical ? (
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Drug Class</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Drug Class</label>
                 <input
                   type="text"
                   name="drug_class"
-                  value={formData.drug_class}
-                  onChange={handleInputChange}
-                  placeholder="e.g., ACE Inhibitors"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={form.drug_class}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
+            ) : (
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Brand Name(s)</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Body System</label>
                 <input
                   type="text"
-                  name="brand_names"
-                  value={formData.brand_names}
-                  onChange={handleInputChange}
-                  placeholder="e.g., Prinivil, Zestril"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  name="body_systems"
+                  value={form.body_systems}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-            </div>
+            )}
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Mechanism of Action (MOA)</label>
-              <textarea
-                name="mechanism_of_action"
-                value={formData.mechanism_of_action}
-                onChange={handleInputChange}
-                rows={2}
-                placeholder="Detailed pharmacological mechanism..."
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {!isClinical && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Indications (comma-separated)</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Body System</label>
                 <input
                   type="text"
-                  name="indications"
-                  value={formData.indications}
-                  onChange={handleInputChange}
-                  placeholder="Hypertension, Heart Failure"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  name="body_systems"
+                  value={form.body_systems}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Routes (comma-separated)</label>
-                <input
-                  type="text"
-                  name="routes"
-                  value={formData.routes}
-                  onChange={handleInputChange}
-                  placeholder="Oral, IV"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Pregnancy Safety</label>
+                <select
+                  name="pregnancy_safety"
+                  value={form.pregnancy_safety}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="Safe (Category A/B)">Safe (Category A/B)</option>
+                  <option value="Use with Caution (Category C)">Use with Caution (Category C)</option>
+                  <option value="Contraindicated / Unsafe (Category D/X)">Contraindicated / Unsafe (Category D/X)</option>
+                  <option value="Not Specified">Not Specified</option>
+                </select>
               </div>
             </div>
+          )}
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Pediatric Dosage</label>
-              <input
-                type="text"
-                name="pediatric_dosage"
-                value={formData.pediatric_dosage}
-                onChange={handleInputChange}
-                placeholder="e.g., 0.1 mg/kg/dose PO daily (if applicable)"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
+          {isClinical ? (
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Pathology (Pathophysiology)</label>
+                  <textarea name="pathophysiology" rows={3} value={form.pathophysiology} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Cause</label>
+                  <textarea name="cause" rows={3} value={form.cause} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Signs / Symptoms</label>
+                  <textarea name="symptoms" rows={3} value={form.symptoms} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Diagnosis / Tests Needed</label>
+                  <textarea name="diagnostics_labs" rows={3} value={form.diagnostics_labs} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Treatment</label>
+                  <textarea name="treatment" rows={3} value={form.treatment} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Consequences (Complications)</label>
+                  <textarea name="complications" rows={3} value={form.complications} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ) : (
+            <div className="space-y-4 pt-4 border-t border-slate-100">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Adverse Effects (comma-separated)</label>
-                <input
-                  type="text"
-                  name="adverse_effects"
-                  value={formData.adverse_effects}
-                  onChange={handleInputChange}
-                  placeholder="Dry cough, Hyperkalemia"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Mechanism of Action</label>
+                <textarea name="mechanism_of_action" rows={3} value={form.mechanism_of_action} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Indications</label>
+                  <textarea name="indications" rows={3} value={form.indications} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Route</label>
+                  <textarea name="route" rows={3} value={form.route} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Side Effects</label>
+                  <textarea name="side_effects" rows={3} value={form.side_effects} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Contraindications</label>
+                  <textarea name="contraindications" rows={3} value={form.contraindications} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Contraindications (comma-separated)</label>
-                <input
-                  type="text"
-                  name="contraindications"
-                  value={formData.contraindications}
-                  onChange={handleInputChange}
-                  placeholder="Pregnancy, Angioedema history"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Clinical Pearls</label>
+                <textarea name="clinical_pearls" rows={3} value={form.clinical_pearls} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
+          )}
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Patient Counseling Tips (comma-separated)</label>
-              <textarea
-                name="patient_counseling"
-                value={formData.patient_counseling}
-                onChange={handleInputChange}
-                rows={2}
-                placeholder="Rise slowly from sitting positions"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Clinical Pearls (Optional)</label>
-              <textarea
-                name="clinical_pearls"
-                value={formData.clinical_pearls}
-                onChange={handleInputChange}
-                rows={2}
-                placeholder="High-yield board note..."
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-
+          <div className="flex justify-end pt-4 border-t border-slate-100">
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50 mt-4 cursor-pointer"
+              disabled={saving}
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-50 cursor-pointer shadow-sm"
             >
-              {loading ? 'Saving Medication...' : 'Save Medication'}
+              <Save className="w-4 h-4" /> {saving ? 'Saving Entry...' : 'Save Entry'}
             </button>
-          </form>
-        </div>
+          </div>
+        </form>
       </div>
     </div>
   );
